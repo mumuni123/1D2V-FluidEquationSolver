@@ -69,11 +69,17 @@ void update_derived_from_n_vx_qz(int nx,
 
     for (int i = 0; i < nx; ++i) {
         gamma[i] = 1.0;
-        vz[i] = qz[i];
-        inv_n[i] = 1.0 / n[i];
-
-        jx[i] = n[i] * vx[i];
-        jz[i] = n[i] * vz[i];
+        if (n[i] <= 0.0) {
+            vz[i] = 0.0;
+            inv_n[i] = 0.0;
+            jx[i] = 0.0;
+            jz[i] = 0.0;
+        } else {
+            vz[i] = qz[i];
+            inv_n[i] = 1.0 / n[i];
+            jx[i] = n[i] * vx[i];
+            jz[i] = n[i] * vz[i];
+        }
     }
 
     apply_zero_gradient(gamma);

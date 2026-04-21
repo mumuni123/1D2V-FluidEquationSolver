@@ -29,6 +29,7 @@ void update_transverse_electric_field(int nx,
                                       double dt,
                                       double dz,
                                       double laser_ex_t,
+                                      bool drive_left_boundary,
                                       const std::vector<double>& jx,
                                       const std::vector<double>& By,
                                       std::vector<double>& Ex) {
@@ -38,8 +39,12 @@ void update_transverse_electric_field(int nx,
         Ex[i] -= dt * curl_by - dt * jx[i];
     }
 
-    // simple_flow style: prescribe incoming laser at left, copy-outflow at right.
-    Ex[0] = laser_ex_t;
+    // simple_flow style: optional left drive, copy-outflow at right.
+    if (drive_left_boundary) {
+        Ex[0] = laser_ex_t;
+    } else {
+        Ex[0] = Ex[1];
+    }
     Ex[nx - 1] = Ex[nx - 2];
 }
 

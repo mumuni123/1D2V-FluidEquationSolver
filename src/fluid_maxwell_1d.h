@@ -52,6 +52,9 @@ private:
     double ne0_;
     double beta_;
     double vth_tilde_;
+    double n_bath_tilde_;
+    double plasma_left_;
+    double plasma_right_;
 
     std::mt19937 rng_;
 

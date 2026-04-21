@@ -15,6 +15,7 @@ void update_transverse_electric_field(int nx,
                                       double dt,
                                       double dz,
                                       double laser_ex_t,
+                                      bool drive_left_boundary,
                                       const std::vector<double>& jx,
                                       const std::vector<double>& By,
                                       std::vector<double>& Ex);

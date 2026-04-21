@@ -25,7 +25,7 @@ TIME_POSITIONS_UM: List[float] = [4.0]
 TIME_VARIABLES: List[str] = ["Ex", "Ez", "By", "ne", "vx", "vz", "Pe"]
 
 # Spatial-profile defaults
-SPACE_STATE_FILE = "state_1798800.csv"
+SPACE_STATE_FILE = "state_2293470.csv"
 
 
 def positions_to_text(values: List[float]) -> str:

@@ -20,20 +20,38 @@ struct Config {
     double snapshot_dt;
     std::string output_dir;
 
+    // Plasma occupies [plasma_left, plasma_right] in meters.
+    // If invalid, solver auto-centers to [0.25*length, 0.75*length].
+    double plasma_left;
+    double plasma_right;
+
+    // Laser enters from the left boundary and propagates rightward.
+    bool laser_from_left_boundary;
+
+    // Interface jump parameters (dimensionless, solver units):
+    // e_n x (H2-H1)=alpha, e_n·(D2-D1)=sigma at vacuum-plasma interface.
+    double interface_alpha_tilde;
+    double interface_sigma_tilde;
+
     double n_floor_ratio;
 
     Config()
-        : lambda0(1.0e-6),
+        : lambda0(3.0e-6),
           intensity_w_cm2(1.0e17),
           electron_temperature_ev(100.0),
           electron_density0(3.0e26),
-          length(8.0e-6),
+          length(25.0e-6),
           dz(0.002e-6),
           t_end(120.0e-15),
           dt_multiplier(0.1),
           gamma_e(3.0),
           snapshot_dt(0.5e-15),
           output_dir("output"),
+          plasma_left(5.0e-6),
+          plasma_right(20.0e-6),
+          laser_from_left_boundary(true),
+          interface_alpha_tilde(0.0),
+          interface_sigma_tilde(0.0),
           n_floor_ratio(0.0) {}
 };
 

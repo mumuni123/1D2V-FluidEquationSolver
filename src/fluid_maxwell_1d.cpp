@@ -4,6 +4,7 @@
 #include "physics_constants.h"
 #include "result_output.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <random>
@@ -37,6 +38,9 @@ FluidMaxwell1D::FluidMaxwell1D(const Config& cfg)
       ne0_(0.0),
       beta_(0.0),
       vth_tilde_(0.0),
+            n_bath_tilde_(0.0),
+            plasma_left_(0.0),
+            plasma_right_(0.0),
       rng_(std::random_device{}()),
     time_tilde_(0.0) {
     for (int i = 0; i < nx_; ++i) {
@@ -74,6 +78,24 @@ FluidMaxwell1D::FluidMaxwell1D(const Config& cfg)
             vth_tilde_ = 0.0;
         }
     }
+
+    plasma_left_ = cfg_.plasma_left;
+    plasma_right_ = cfg_.plasma_right;
+    if (!(plasma_left_ >= 0.0 && plasma_right_ > plasma_left_ && plasma_right_ <= cfg_.length)) {
+        plasma_left_ = 0.25 * cfg_.length;
+        plasma_right_ = 0.75 * cfg_.length;
+    }
+
+    n_bath_tilde_ = std::max(cfg_.n_floor_ratio, 1.0e-6);
+
+    for (int i = 0; i < nx_; ++i) {
+        const bool in_plasma = (z_[i] >= plasma_left_ && z_[i] <= plasma_right_);
+        n_[i] = in_plasma ? 1.0 : n_bath_tilde_;
+        vx_[i] = 0.0;
+        qz_[i] = 0.0;
+    }
+
+    // Keep initial electromagnetic fields zero; laser enters from left boundary during stepping.
 }
 
 void FluidMaxwell1D::run() {
@@ -133,6 +155,9 @@ void FluidMaxwell1D::print_summary() const {
     std::cout << "lambda0=" << cfg_.lambda0 << " m, a0=" << (E0_ / E_scale_) << std::endl;
     std::cout << "ne0=" << cfg_.electron_density0 << " m^-3, Te="
               << cfg_.electron_temperature_ev << " eV" << std::endl;
+    std::cout << "domain_length=" << cfg_.length << " m" << std::endl;
+    std::cout << "plasma_region=[" << plasma_left_ << ", " << plasma_right_ << "] m" << std::endl;
+    std::cout << "laser_from_left_boundary=" << (cfg_.laser_from_left_boundary ? "true" : "false") << std::endl;
 }
 
 double FluidMaxwell1D::laser_ex(double t_tilde) const { return (E0_ / E_scale_) * std::sin(omega0_tilde_ * t_tilde); }
@@ -142,13 +167,62 @@ void FluidMaxwell1D::step_once() {
     const std::vector<double> n_old = n_;
     const std::vector<double> Ez_old = Ez_;
 
+    auto is_plasma_cell = [&](int i) {
+        return (z_[i] >= plasma_left_ && z_[i] <= plasma_right_);
+    };
+
+    auto enforce_vacuum_fluid_zero = [&]() {
+        for (int i = 0; i < nx_; ++i) {
+            if (!is_plasma_cell(i)) {
+                n_[i] = 0.0;
+                vx_[i] = 0.0;
+                qz_[i] = 0.0;
+                Ez_[i] = 0.0;
+            }
+        }
+    };
+
+    auto apply_interface_jump = [&]() {
+        for (int i = 0; i < nx_ - 1; ++i) {
+            const bool left_plasma = is_plasma_cell(i);
+            const bool right_plasma = is_plasma_cell(i + 1);
+            if (left_plasma == right_plasma) {
+                continue;
+            }
+
+            // e_n x (E2-E1)=0 -> tangential Ex continuity.
+            const double ex_avg = 0.5 * (Ex_[i] + Ex_[i + 1]);
+            Ex_[i] = ex_avg;
+            Ex_[i + 1] = ex_avg;
+
+            // e_n x (H2-H1)=alpha (discrete face form in solver units).
+            const int k = i + 1;
+            if (k >= 1 && k <= nx_) {
+                By_[k] = By_[k - 1] + cfg_.interface_alpha_tilde;
+            }
+
+            // e_n·(D2-D1)=sigma with vacuum side Ez=0 in this model.
+            if (left_plasma && !right_plasma) {
+                Ez_[i] = -cfg_.interface_sigma_tilde;
+                Ez_[i + 1] = 0.0;
+            } else if (!left_plasma && right_plasma) {
+                Ez_[i] = 0.0;
+                Ez_[i + 1] = cfg_.interface_sigma_tilde;
+            }
+        }
+    };
+
+    enforce_vacuum_fluid_zero();
+
     FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_);
 
     MaxwellSolver::update_magnetic_field(nx_, dt_tilde_, dz_tilde_, Ex_, By_);
 
     MaxwellSolver::update_transverse_electric_field(nx_, dt_tilde_, dz_tilde_,
-                                                    laser_ex(t_next), jx_, By_, Ex_);
+                                                    laser_ex(t_next), cfg_.laser_from_left_boundary, jx_, By_, Ex_);
     MaxwellSolver::update_longitudinal_electric_field(nx_, dt_tilde_, jz_, Ez_);
+    apply_interface_jump();
+    enforce_vacuum_fluid_zero();
 
     std::vector<double> jz_from_ez(nx_, 0.0);
     for (int i = 0; i < nx_; ++i) {
@@ -156,9 +230,9 @@ void FluidMaxwell1D::step_once() {
     }
 
     std::vector<double> n_new;
-    FluidSolver::update_n(nx_, dt_tilde_, dz_tilde_, 1.0, vth_tilde_, n_, vz_, jz_, n_new);
+    FluidSolver::update_n(nx_, dt_tilde_, dz_tilde_, n_bath_tilde_, vth_tilde_, n_, vz_, jz_, n_new);
     FluidSolver::enforce_continuity_constraint_from_jz(nx_, dt_tilde_, dz_tilde_,
-                                                       1.0, vth_tilde_, n_old, vz_, jz_from_ez, n_new);
+                                                       n_bath_tilde_, vth_tilde_, n_old, vz_, jz_from_ez, n_new);
     n_.swap(n_new);
 
     FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_);
@@ -168,6 +242,9 @@ void FluidMaxwell1D::step_once() {
     FluidSolver::update_qz(nx_, dt_tilde_, dz_tilde_, beta_, Ez_, By_, n_, inv_n_, vx_, vz_, qz_);
 
     FluidSolver::apply_thermal_both_sides(nx_, vth_tilde_, n_, vx_, qz_);
+
+    enforce_vacuum_fluid_zero();
+    apply_interface_jump();
 
     FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_);
 
