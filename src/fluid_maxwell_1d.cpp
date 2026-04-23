@@ -167,8 +167,13 @@ void FluidMaxwell1D::step_once() {
     const std::vector<double> n_old = n_;
     const std::vector<double> Ez_old = Ez_;
 
+    std::vector<char> plasma_mask(nx_, 0);
+    for (int i = 0; i < nx_; ++i) {
+        plasma_mask[i] = (z_[i] >= plasma_left_ && z_[i] <= plasma_right_) ? 1 : 0;
+    }
+
     auto is_plasma_cell = [&](int i) {
-        return (z_[i] >= plasma_left_ && z_[i] <= plasma_right_);
+        return plasma_mask[i] != 0;
     };
 
     auto enforce_vacuum_fluid_zero = [&]() {
@@ -183,11 +188,26 @@ void FluidMaxwell1D::step_once() {
     };
 
     auto apply_interface_jump = [&]() {
+        if (!cfg_.enable_interface_jump_bc) {
+            return;
+        }
+
         for (int i = 0; i < nx_ - 1; ++i) {
             const bool left_plasma = is_plasma_cell(i);
             const bool right_plasma = is_plasma_cell(i + 1);
             if (left_plasma == right_plasma) {
                 continue;
+            }
+
+            const int ip = left_plasma ? i : (i + 1);
+            const int iv = left_plasma ? (i + 1) : i;
+            double alpha_tilde = cfg_.interface_alpha_tilde;
+            double sigma_tilde = cfg_.interface_sigma_tilde;
+
+            if (cfg_.interface_source_from_plasma) {
+                // Local effective sheet sources from the plasma side state.
+                alpha_tilde = -dt_tilde_ * jx_[ip];
+                sigma_tilde = Ez_[ip];
             }
 
             // e_n x (E2-E1)=0 -> tangential Ex continuity.
@@ -198,23 +218,43 @@ void FluidMaxwell1D::step_once() {
             // e_n x (H2-H1)=alpha (discrete face form in solver units).
             const int k = i + 1;
             if (k >= 1 && k <= nx_) {
-                By_[k] = By_[k - 1] + cfg_.interface_alpha_tilde;
+                By_[k] = By_[k - 1] + alpha_tilde;
             }
 
-            // e_n·(D2-D1)=sigma with vacuum side Ez=0 in this model.
-            if (left_plasma && !right_plasma) {
-                Ez_[i] = -cfg_.interface_sigma_tilde;
-                Ez_[i + 1] = 0.0;
-            } else if (!left_plasma && right_plasma) {
-                Ez_[i] = 0.0;
-                Ez_[i + 1] = cfg_.interface_sigma_tilde;
+            // e_n·(D2-D1)=sigma, with vacuum Ez pinned to 0 in this model.
+            Ez_[ip] = sigma_tilde;
+            Ez_[iv] = 0.0;
+        }
+    };
+
+    auto apply_closed_plasma_boundary = [&]() {
+        int left_i = -1;
+        int right_i = -1;
+        for (int i = 0; i < nx_; ++i) {
+            if (is_plasma_cell(i)) {
+                left_i = i;
+                break;
             }
+        }
+        for (int i = nx_ - 1; i >= 0; --i) {
+            if (is_plasma_cell(i)) {
+                right_i = i;
+                break;
+            }
+        }
+        if (left_i >= 0) {
+            qz_[left_i] = 0.0;
+            vz_[left_i] = 0.0;
+        }
+        if (right_i >= 0) {
+            qz_[right_i] = 0.0;
+            vz_[right_i] = 0.0;
         }
     };
 
     enforce_vacuum_fluid_zero();
 
-    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_);
+    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask);
 
     MaxwellSolver::update_magnetic_field(nx_, dt_tilde_, dz_tilde_, Ex_, By_);
 
@@ -226,27 +266,29 @@ void FluidMaxwell1D::step_once() {
 
     std::vector<double> jz_from_ez(nx_, 0.0);
     for (int i = 0; i < nx_; ++i) {
-        jz_from_ez[i] = (Ez_[i] - Ez_old[i]) / dt_tilde_;
+        jz_from_ez[i] = is_plasma_cell(i) ? ((Ez_[i] - Ez_old[i]) / dt_tilde_) : 0.0;
     }
 
     std::vector<double> n_new;
-    FluidSolver::update_n(nx_, dt_tilde_, dz_tilde_, n_bath_tilde_, vth_tilde_, n_, vz_, jz_, n_new);
+    FluidSolver::update_n(nx_, dt_tilde_, dz_tilde_, n_bath_tilde_, vth_tilde_, n_, vz_, jz_, n_new,
+                         &plasma_mask, true);
     FluidSolver::enforce_continuity_constraint_from_jz(nx_, dt_tilde_, dz_tilde_,
-                                                       n_bath_tilde_, vth_tilde_, n_old, vz_, jz_from_ez, n_new);
+                                                       n_bath_tilde_, vth_tilde_, n_old, vz_, jz_from_ez, n_new,
+                                                       &plasma_mask, true);
     n_.swap(n_new);
 
-    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_);
-    FluidSolver::update_vx(nx_, dt_tilde_, dz_tilde_, Ex_, By_, vz_, vx_);
+    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask);
+    FluidSolver::update_vx(nx_, dt_tilde_, dz_tilde_, Ex_, By_, vz_, vx_, &plasma_mask);
 
-    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_);
-    FluidSolver::update_qz(nx_, dt_tilde_, dz_tilde_, beta_, Ez_, By_, n_, inv_n_, vx_, vz_, qz_);
+    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask);
+    FluidSolver::update_qz(nx_, dt_tilde_, dz_tilde_, beta_, Ez_, By_, n_, inv_n_, vx_, vz_, qz_, &plasma_mask);
 
-    FluidSolver::apply_thermal_both_sides(nx_, vth_tilde_, n_, vx_, qz_);
+    apply_closed_plasma_boundary();
 
     enforce_vacuum_fluid_zero();
     apply_interface_jump();
 
-    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_);
+    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask);
 
     time_tilde_ = t_next;
 }

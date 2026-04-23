@@ -30,6 +30,8 @@ struct Config {
 
     // Interface jump parameters (dimensionless, solver units):
     // e_n x (H2-H1)=alpha, e_n·(D2-D1)=sigma at vacuum-plasma interface.
+    bool enable_interface_jump_bc;
+    bool interface_source_from_plasma;
     double interface_alpha_tilde;
     double interface_sigma_tilde;
 
@@ -50,6 +52,8 @@ struct Config {
           plasma_left(5.0e-6),
           plasma_right(20.0e-6),
           laser_from_left_boundary(true),
+          enable_interface_jump_bc(true),
+          interface_source_from_plasma(true),
           interface_alpha_tilde(0.0),
           interface_sigma_tilde(0.0),
           n_floor_ratio(0.0) {}
