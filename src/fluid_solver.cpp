@@ -18,39 +18,6 @@ void apply_zero_gradient(std::vector<double>& a) {
     }
 }
 
-void central_grad(const std::vector<double>& phi, double dz, std::vector<double>& g) {
-    const int n = static_cast<int>(phi.size());
-    g.resize(n);
-    if (n < 2) {
-        return;
-    }
-
-    for (int i = 1; i < n - 1; ++i) {
-        g[i] = (phi[i + 1] - phi[i - 1]) / (2.0 * dz);
-    }
-    g[0] = (phi[1] - phi[0]) / dz;
-    g[n - 1] = (phi[n - 1] - phi[n - 2]) / dz;
-}
-
-void upwind_grad(const std::vector<double>& phi,
-                 const std::vector<double>& v,
-                 double dz,
-                 std::vector<double>& g) {
-    const int n = static_cast<int>(phi.size());
-    g.resize(n);
-    if (n < 2) {
-        return;
-    }
-
-    for (int i = 1; i < n - 1; ++i) {
-        const double back = (phi[i] - phi[i - 1]) / dz;
-        const double fwd = (phi[i + 1] - phi[i]) / dz;
-        g[i] = (v[i] >= 0.0) ? back : fwd;
-    }
-    g[0] = (phi[1] - phi[0]) / dz;
-    g[n - 1] = (phi[n - 1] - phi[n - 2]) / dz;
-}
-
 }
 
 namespace FluidSolver {
@@ -96,11 +63,14 @@ void update_derived_from_n_vx_qz(int nx,
         }
     }
 
-    apply_zero_gradient(gamma);
-    apply_zero_gradient(inv_n);
-    apply_zero_gradient(vz);
-    apply_zero_gradient(jx);
-    apply_zero_gradient(jz);
+    if (plasma_mask == nullptr)
+    {
+        apply_zero_gradient(gamma);
+        apply_zero_gradient(inv_n);
+        apply_zero_gradient(vz);
+        apply_zero_gradient(jx);
+        apply_zero_gradient(jz);
+    }
 }
 
 void update_n(int nx,
@@ -114,39 +84,34 @@ void update_n(int nx,
               std::vector<double>& n_new,
               const std::vector<char>* plasma_mask,
               bool closed_boundary) {
-    std::vector<double> flux(nx + 1, 0.0);
-
-    for (int i = 0; i < nx - 1; ++i) {
-        if (!in_plasma(i, plasma_mask) || !in_plasma(i + 1, plasma_mask)) {
-            flux[i + 1] = 0.0;
-            continue;
+    const double thermal_in = n_bath * vth_tilde * kInvSqrtTwoPi;
+    auto face_flux = [&](int face) -> double {
+        if (face == 0) {
+            return closed_boundary ? 0.0 : thermal_in + std::min(jz[0], 0.0);
+        }
+        if (face == nx) {
+            return closed_boundary ? 0.0 : std::max(jz[nx - 1], 0.0) - thermal_in;
+        }
+        const int left = face - 1;
+        const int right = face;
+        if (!in_plasma(left, plasma_mask) || !in_plasma(right, plasma_mask)) {
+            return 0.0;
         }
 
-        const double UL = n_old[i];
-        const double UR = n_old[i + 1];
-        const double FL = jz[i];
-        const double FR = jz[i + 1];
-        const double a = std::max(std::fabs(vz[i]), std::fabs(vz[i + 1]));
-        flux[i + 1] = 0.5 * (FL + FR) - 0.5 * a * (UR - UL);
-    }
-    if (closed_boundary) {
-        flux[0] = 0.0;
-        flux[nx] = 0.0;
-    } else {
-        const double thermal_in = n_bath * vth_tilde * kInvSqrtTwoPi;
-        const double outgoing_left = std::min(jz[0], 0.0);
-        flux[0] = thermal_in + outgoing_left;
-        const double outgoing_right = std::max(jz[nx - 1], 0.0);
-        flux[nx] = outgoing_right - thermal_in;
-    }
+        const double a = std::max(std::fabs(vz[left]), std::fabs(vz[right]));
+        return 0.5 * (jz[left] + jz[right]) - 0.5 * a * (n_old[right] - n_old[left]);
+    };
 
     n_new.resize(nx);
+    double flux_left = face_flux(0);
     for (int i = 0; i < nx; ++i) {
+        const double flux_right = face_flux(i + 1);
         if (!in_plasma(i, plasma_mask)) {
             n_new[i] = 0.0;
         } else {
-            n_new[i] = n_old[i] - (dt / dz) * (flux[i + 1] - flux[i]);
+            n_new[i] = n_old[i] - (dt / dz) * (flux_right - flux_left);
         }
+        flux_left = flux_right;
     }
 
     if (plasma_mask == nullptr) {
@@ -164,37 +129,38 @@ void enforce_continuity_constraint_from_jz(int nx,
                                            const std::vector<double>& jz,
                                            std::vector<double>& n_new,
                                            const std::vector<char>* plasma_mask,
-                                           bool closed_boundary) {
-    std::vector<double> flux(nx + 1, 0.0);
-    for (int i = 0; i < nx - 1; ++i) {
-        if (!in_plasma(i, plasma_mask) || !in_plasma(i + 1, plasma_mask)) {
-            flux[i + 1] = 0.0;
-            continue;
+                                           bool closed_boundary,
+                                           std::vector<double>* n_proj_workspace) {
+    const double thermal_in = n_bath * vth_tilde * kInvSqrtTwoPi;
+    auto face_flux = [&](int face) -> double {
+        if (face == 0) {
+            return closed_boundary ? 0.0 : thermal_in + std::min(jz[0], 0.0);
+        }
+        if (face == nx) {
+            return closed_boundary ? 0.0 : std::max(jz[nx - 1], 0.0) - thermal_in;
+        }
+        const int left = face - 1;
+        const int right = face;
+        if (!in_plasma(left, plasma_mask) || !in_plasma(right, plasma_mask)) {
+            return 0.0;
         }
 
-        const double a = std::max(std::fabs(vz[i]), std::fabs(vz[i + 1]));
-        const double dn = n_old[i + 1] - n_old[i];
-        flux[i + 1] = 0.5 * (jz[i] + jz[i + 1]) - 0.5 * a * dn;
-    }
+        const double a = std::max(std::fabs(vz[left]), std::fabs(vz[right]));
+        return 0.5 * (jz[left] + jz[right]) - 0.5 * a * (n_old[right] - n_old[left]);
+    };
 
-    if (closed_boundary) {
-        flux[0] = 0.0;
-        flux[nx] = 0.0;
-    } else {
-        const double thermal_in = n_bath * vth_tilde * kInvSqrtTwoPi;
-        const double outgoing_left = std::min(jz[0], 0.0);
-        flux[0] = thermal_in + outgoing_left;
-        const double outgoing_right = std::max(jz[nx - 1], 0.0);
-        flux[nx] = outgoing_right - thermal_in;
-    }
-
-    std::vector<double> n_proj(nx, 0.0);
+    std::vector<double> local_n_proj;
+    std::vector<double>& n_proj = n_proj_workspace ? *n_proj_workspace : local_n_proj;
+    n_proj.resize(nx);
+    double flux_left = face_flux(0);
     for (int i = 0; i < nx; ++i) {
+        const double flux_right = face_flux(i + 1);
         if (!in_plasma(i, plasma_mask)) {
             n_proj[i] = 0.0;
         } else {
-            n_proj[i] = n_old[i] - (dt / dz) * (flux[i + 1] - flux[i]);
+            n_proj[i] = n_old[i] - (dt / dz) * (flux_right - flux_left);
         }
+        flux_left = flux_right;
     }
     if (plasma_mask == nullptr) {
         apply_zero_gradient(n_proj);
@@ -238,22 +204,29 @@ void update_vx(int nx,
                const std::vector<double>& By,
                const std::vector<double>& vz,
                std::vector<double>& vx,
-               const std::vector<char>* plasma_mask) {
-    std::vector<double> by_center(nx, 0.0);
-    std::vector<double> dvx_dz(nx, 0.0);
+               const std::vector<char>* plasma_mask,
+               std::vector<double>* dvx_dz_workspace) {
+    std::vector<double> local_dvx_dz;
+    std::vector<double>& dvx_dz = dvx_dz_workspace ? *dvx_dz_workspace : local_dvx_dz;
+    dvx_dz.resize(nx);
 
-    for (int i = 0; i < nx; ++i) {
-        by_center[i] = 0.5 * (By[i] + By[i + 1]);
+    if (nx >= 2) {
+        dvx_dz[0] = (vx[1] - vx[0]) / dz;
+        dvx_dz[nx - 1] = (vx[nx - 1] - vx[nx - 2]) / dz;
     }
-
-    upwind_grad(vx, vz, dz, dvx_dz);
+    for (int i = 1; i < nx - 1; ++i) {
+        const double back = (vx[i] - vx[i - 1]) / dz;
+        const double fwd = (vx[i + 1] - vx[i]) / dz;
+        dvx_dz[i] = (vz[i] >= 0.0) ? back : fwd;
+    }
 
     for (int i = 1; i < nx - 1; ++i) {
         if (!in_plasma(i, plasma_mask)) {
             vx[i] = 0.0;
             continue;
         }
-        const double src = -(Ex[i] - vz[i] * by_center[i]);
+        const double by_center = 0.5 * (By[i] + By[i + 1]);
+        const double src = -(Ex[i] - vz[i] * by_center);
         vx[i] += dt * (src - vz[i] * dvx_dz[i]);
     }
 
@@ -279,24 +252,36 @@ void update_qz(int nx,
                const std::vector<double>& vx,
                const std::vector<double>& vz,
                std::vector<double>& qz,
-               const std::vector<char>* plasma_mask) {
-    std::vector<double> by_center(nx, 0.0);
-    std::vector<double> dqz_dz(nx, 0.0);
-    std::vector<double> dn_dz(nx, 0.0);
+               const std::vector<char>* plasma_mask,
+               std::vector<double>* dqz_dz_workspace,
+               std::vector<double>* dn_dz_workspace) {
+    std::vector<double> local_dqz_dz;
+    std::vector<double> local_dn_dz;
+    std::vector<double>& dqz_dz = dqz_dz_workspace ? *dqz_dz_workspace : local_dqz_dz;
+    std::vector<double>& dn_dz = dn_dz_workspace ? *dn_dz_workspace : local_dn_dz;
+    dqz_dz.resize(nx);
+    dn_dz.resize(nx);
 
-    for (int i = 0; i < nx; ++i) {
-        by_center[i] = 0.5 * (By[i] + By[i + 1]);
+    if (nx >= 2) {
+        dqz_dz[0] = (qz[1] - qz[0]) / dz;
+        dqz_dz[nx - 1] = (qz[nx - 1] - qz[nx - 2]) / dz;
+        dn_dz[0] = (n[1] - n[0]) / dz;
+        dn_dz[nx - 1] = (n[nx - 1] - n[nx - 2]) / dz;
     }
-
-    upwind_grad(qz, vz, dz, dqz_dz);
-    central_grad(n, dz, dn_dz);
+    for (int i = 1; i < nx - 1; ++i) {
+        const double back = (qz[i] - qz[i - 1]) / dz;
+        const double fwd = (qz[i + 1] - qz[i]) / dz;
+        dqz_dz[i] = (vz[i] >= 0.0) ? back : fwd;
+        dn_dz[i] = (n[i + 1] - n[i - 1]) / (2.0 * dz);
+    }
 
     for (int i = 1; i < nx - 1; ++i) {
         if (!in_plasma(i, plasma_mask)) {
             qz[i] = 0.0;
             continue;
         }
-        const double src = -(Ez[i] + vx[i] * by_center[i]) - beta * inv_n[i] * dn_dz[i];
+        const double by_center = 0.5 * (By[i] + By[i + 1]);
+        const double src = -(Ez[i] + vx[i] * by_center) - beta * inv_n[i] * dn_dz[i];
         qz[i] += dt * (src - vz[i] * dqz_dz[i]);
     }
 

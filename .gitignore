@@ -1,5 +1,5 @@
-.vscode
-.venv
-build
-
-results
+.vscode/
+.venv/
+build/
+output/
+results/

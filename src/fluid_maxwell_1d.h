@@ -35,6 +35,16 @@ private:
     std::vector<double> jx_;
     std::vector<double> jz_;
     std::vector<double> By_;
+    std::vector<char> plasma_mask_;
+    std::vector<int> interface_faces_;
+    std::vector<double> n_old_;
+    std::vector<double> Ez_old_;
+    std::vector<double> jz_from_ez_;
+    std::vector<double> n_new_;
+    std::vector<double> n_proj_;
+    std::vector<double> dvx_dz_;
+    std::vector<double> dqz_dz_;
+    std::vector<double> dn_dz_;
 
     double dt_;
     double dt_tilde_;
@@ -52,9 +62,11 @@ private:
     double ne0_;
     double beta_;
     double vth_tilde_;
-    double n_bath_tilde_;
+    double n_bath_tilde_; 
     double plasma_left_;
     double plasma_right_;
+    int plasma_left_index_;
+    int plasma_right_index_;
 
     std::mt19937 rng_;
 

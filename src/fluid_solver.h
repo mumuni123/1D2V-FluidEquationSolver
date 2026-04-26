@@ -35,7 +35,8 @@ void update_vx(int nx,
                const std::vector<double>& By,
                const std::vector<double>& vz,
                std::vector<double>& vx,
-               const std::vector<char>* plasma_mask = nullptr);
+               const std::vector<char>* plasma_mask = nullptr,
+               std::vector<double>* dvx_dz_workspace = nullptr);
 
 void update_qz(int nx,
                double dt,
@@ -48,7 +49,9 @@ void update_qz(int nx,
                const std::vector<double>& vx,
                const std::vector<double>& vz,
                std::vector<double>& qz,
-               const std::vector<char>* plasma_mask = nullptr);
+               const std::vector<char>* plasma_mask = nullptr,
+               std::vector<double>* dqz_dz_workspace = nullptr,
+               std::vector<double>* dn_dz_workspace = nullptr);
 
 void apply_thermal_both_sides(int nx,
                               double vth_tilde,
@@ -66,7 +69,8 @@ void enforce_continuity_constraint_from_jz(int nx,
                                            const std::vector<double>& jz,
                                            std::vector<double>& n_new,
                                            const std::vector<char>* plasma_mask = nullptr,
-                                           bool closed_boundary = false);
+                                           bool closed_boundary = false,
+                                           std::vector<double>* n_proj_workspace = nullptr);
 
 }
 
