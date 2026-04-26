@@ -204,9 +204,26 @@ void FluidMaxwell1D::print_summary() const
     std::cout << "domain_length=" << cfg_.length << " m" << std::endl;
     std::cout << "plasma_region=[" << plasma_left_ << ", " << plasma_right_ << "] m" << std::endl;
     std::cout << "laser_from_left_boundary=" << (cfg_.laser_from_left_boundary ? "true" : "false") << std::endl;
+    std::cout << "laser_smooth_ramp=" << (cfg_.laser_smooth_ramp ? "true" : "false")
+              << ", laser_ramp_cycles=" << cfg_.laser_ramp_cycles << std::endl;
+    std::cout << "linear_overdense_test=" << (cfg_.linear_overdense_test ? "true" : "false") << std::endl;
 }
 
-double FluidMaxwell1D::laser_ex(double t_tilde) const { return (E0_ / E_scale_) * std::sin(omega0_tilde_ * t_tilde); }
+double FluidMaxwell1D::laser_ex(double t_tilde) const
+{
+    double envelope = 1.0;
+    if (cfg_.laser_smooth_ramp && cfg_.laser_ramp_cycles > 0.0 && omega0_tilde_ > 0.0)
+    {
+        const double ramp_time = cfg_.laser_ramp_cycles * 2.0 * PhysConst::PI / omega0_tilde_;
+        if (t_tilde < ramp_time)
+        {
+            const double s = std::sin(0.5 * PhysConst::PI * t_tilde / ramp_time);
+            envelope = s * s;
+        }
+    }
+
+    return envelope * (E0_ / E_scale_) * std::sin(omega0_tilde_ * t_tilde);
+}
 
 void FluidMaxwell1D::step_once()
 {
@@ -271,6 +288,21 @@ void FluidMaxwell1D::step_once()
             vz_[plasma_right_index_] = 0.0;
         }
     };
+
+    if (cfg_.linear_overdense_test)
+    {
+        FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask_);
+
+        MaxwellSolver::update_magnetic_field(nx_, dt_tilde_, dz_tilde_, Ex_, By_);
+        MaxwellSolver::update_transverse_electric_field(nx_, dt_tilde_, dz_tilde_,
+                                                        laser_ex(t_next), cfg_.laser_from_left_boundary, jx_, By_, Ex_);
+
+        FluidSolver::update_vx(nx_, dt_tilde_, dz_tilde_, Ex_, By_, vz_, vx_, &plasma_mask_, &dvx_dz_);
+
+        FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask_);
+        time_tilde_ = t_next;
+        return;
+    }
 
     FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask_);
 

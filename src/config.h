@@ -27,6 +27,8 @@ struct Config {
 
     // Laser enters from the left boundary and propagates rightward.
     bool laser_from_left_boundary;
+    bool laser_smooth_ramp;
+    double laser_ramp_cycles;
 
     // Interface jump parameters (dimensionless, solver units):
     // e_n x (H2-H1)=alpha, e_n·(D2-D1)=sigma at vacuum-plasma interface.
@@ -34,6 +36,10 @@ struct Config {
     bool interface_source_from_plasma;
     double interface_alpha_tilde;
     double interface_sigma_tilde;
+
+    // Linear overdense-plasma test mode:
+    // freeze n, Ez, vz and qz; only advance Ex, By and vx in the plasma slab.
+    bool linear_overdense_test;
 
     double n_floor_ratio;
 
@@ -52,10 +58,13 @@ struct Config {
           plasma_left(5.0e-6),
           plasma_right(20.0e-6),
           laser_from_left_boundary(true),
+          laser_smooth_ramp(true),
+          laser_ramp_cycles(10.0),
           enable_interface_jump_bc(false),
           interface_source_from_plasma(true),
           interface_alpha_tilde(0.0),
           interface_sigma_tilde(0.0),
+          linear_overdense_test(true),
           n_floor_ratio(0.0) {}
 };
 
