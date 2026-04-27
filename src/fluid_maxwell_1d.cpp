@@ -107,11 +107,55 @@ FluidMaxwell1D::FluidMaxwell1D(const Config &cfg)
 
     n_bath_tilde_ = std::max(cfg_.n_floor_ratio, 0.0);
 
+    const double ramp_width = std::max(0.0, std::min(cfg_.plasma_ramp_width, 0.5 * (plasma_right_ - plasma_left_)));
+    const double ramp_sharpness = std::max(cfg_.plasma_ramp_sharpness, 1.0);
+    const double active_density_floor = 1.0e-8;
+
+    auto fast_ramp = [&](double x) {
+        if (x <= 0.0)
+        {
+            return 0.0;
+        }
+        if (x >= 1.0)
+        {
+            return 1.0;
+        }
+
+        const double a = std::tanh(-0.5 * ramp_sharpness);
+        const double b = std::tanh(0.5 * ramp_sharpness);
+        const double y = std::tanh(ramp_sharpness * (x - 0.5));
+        return (y - a) / (b - a);
+    };
+
+    auto plasma_density_profile = [&](double z) {
+        if (ramp_width <= 0.0)
+        {
+            return (z >= plasma_left_ && z <= plasma_right_) ? 1.0 : 0.0;
+        }
+
+        const double ramp_left = plasma_left_ - ramp_width;
+        const double ramp_right = plasma_right_ + ramp_width;
+        if (z < ramp_left || z > ramp_right)
+        {
+            return 0.0;
+        }
+        if (z < plasma_left_)
+        {
+            return fast_ramp((z - ramp_left) / ramp_width);
+        }
+        if (z <= plasma_right_)
+        {
+            return 1.0;
+        }
+        return fast_ramp((ramp_right - z) / ramp_width);
+    };
+
     for (int i = 0; i < nx_; ++i)
     {
-        const bool in_plasma = (z_[i] >= plasma_left_ && z_[i] <= plasma_right_);
+        const double density_profile = plasma_density_profile(z_[i]);
+        const bool in_plasma = density_profile > active_density_floor;
         plasma_mask_[i] = in_plasma ? 1 : 0;
-        n_[i] = in_plasma ? 1.0 : 0.0;
+        n_[i] = in_plasma ? density_profile : 0.0;
         vx_[i] = 0.0;
         qz_[i] = 0.0;
         if (in_plasma)
@@ -203,6 +247,8 @@ void FluidMaxwell1D::print_summary() const
               << cfg_.electron_temperature_ev << " eV" << std::endl;
     std::cout << "domain_length=" << cfg_.length << " m" << std::endl;
     std::cout << "plasma_region=[" << plasma_left_ << ", " << plasma_right_ << "] m" << std::endl;
+    std::cout << "plasma_ramp_width=" << cfg_.plasma_ramp_width << " m, plasma_ramp_sharpness="
+              << cfg_.plasma_ramp_sharpness << std::endl;
     std::cout << "laser_from_left_boundary=" << (cfg_.laser_from_left_boundary ? "true" : "false") << std::endl;
     std::cout << "laser_smooth_ramp=" << (cfg_.laser_smooth_ramp ? "true" : "false")
               << ", laser_ramp_cycles=" << cfg_.laser_ramp_cycles << std::endl;
