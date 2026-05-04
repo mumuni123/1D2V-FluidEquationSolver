@@ -47,7 +47,7 @@ struct Config {
     double n_floor_ratio;
 
     Config()
-        : lambda0(1.0e-6),
+        : lambda0(3.0e-6),
           intensity_w_cm2(1.0e17),
           // laser parameters
 
@@ -75,8 +75,8 @@ struct Config {
 
           // laser parameters
           laser_from_left_boundary(true),
-          laser_smooth_ramp(true),
-          laser_ramp_cycles(10.0),
+          laser_smooth_ramp(false), // if true, ramp on the laser intensity with a sin^2 envelope over the first laser_ramp_cycles cycles; otherwise, turn on the laser abruptly at full intensity.
+          laser_ramp_cycles(10.0), 
 
           // interface jump parameters
           enable_interface_jump_bc(false),
