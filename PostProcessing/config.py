@@ -21,7 +21,7 @@ NORMALIZE_OUTPUT = True
 INITIAL_DENSITY_M3 = 3.0e26
 
 # Time-evolution defaults
-TIME_POSITIONS_UM: List[float] = [8.0]
+TIME_POSITIONS_UM: List[float] = [2.0]
 TIME_VARIABLES: List[str] = ["Ex", "Ez", "By", "ne", "vx", "vz", "Pe"]
 
 # Spatial-profile defaults
