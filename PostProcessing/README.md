@@ -9,6 +9,8 @@ This folder now contains two separated plotting modules:
 	- Plot full-time evolution at user-specified spatial positions.
 - plot_ex_time_fft_at_position.py
 	- Plot Ex time evolution at one spatial position and its FFT spectrum.
+- plot_ex_spacetime.py
+	- Plot Ex(z,t) spacetime map.
 - plot_spatial_profile_for_state.py
 	- Plot full-position profile for one specified state file.
 
@@ -60,6 +62,8 @@ Enable normalization either by config or CLI:
 python PostProcessing/plot_time_evolution_at_positions.py --positions-um 0.5,2.0,4.0
 python PostProcessing/plot_time_evolution_at_positions.py --positions-um 0.5,2.0,4.0 --normalize --n0 3e26
 python PostProcessing/plot_ex_time_fft_at_position.py --position-um 23.0
+python PostProcessing/plot_ex_spacetime.py
+python PostProcessing/plot_ex_spacetime.py --z-min-um 0 --z-max-um 30 --time-min 70 --time-max 120
 ```
 
 2) Directly use spatial-profile module (latest file):
