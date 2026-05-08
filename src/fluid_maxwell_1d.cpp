@@ -1,5 +1,6 @@
 #include "fluid_maxwell_1d.h"
 #include "fluid_solver.h"
+#include "laser_driver.h"
 #include "maxwell_solver.h"
 #include "physics_constants.h"
 #include "result_output.h"
@@ -252,6 +253,20 @@ void FluidMaxwell1D::print_summary() const
     std::cout << "laser_from_left_boundary=" << (cfg_.laser_from_left_boundary ? "true" : "false") << std::endl;
     std::cout << "laser_smooth_ramp=" << (cfg_.laser_smooth_ramp ? "true" : "false")
               << ", laser_ramp_cycles=" << cfg_.laser_ramp_cycles << std::endl;
+    std::cout << "enable_multi_laser=" << (cfg_.enable_multi_laser ? "true" : "false") << std::endl;
+    if (cfg_.enable_multi_laser)
+    {
+        const LaserBeamConfig beams[2] = {cfg_.laser_beam1, cfg_.laser_beam2};
+        for (int i = 0; i < 2; ++i)
+        {
+            std::cout << "laser_beam" << (i + 1)
+                      << ": enabled=" << (beams[i].enabled ? "true" : "false")
+                      << ", side=" << (beams[i].from_left_boundary ? "left" : "right")
+                      << ", lambda=" << beams[i].lambda
+                      << " m, intensity=" << beams[i].intensity_w_cm2
+                      << " W/cm^2" << std::endl;
+        }
+    }
     std::cout << "linear_overdense_test=" << (cfg_.linear_overdense_test ? "true" : "false") << std::endl;
 }
 
@@ -276,6 +291,16 @@ void FluidMaxwell1D::step_once()
     const double t_next = time_tilde_ + dt_tilde_;
     n_old_ = n_;
     Ez_old_ = Ez_;
+    LaserDriver::BoundaryDrive laser_drive;
+    if (cfg_.enable_multi_laser)
+    {
+        laser_drive = LaserDriver::boundary_drive(cfg_, t_next, omega_pe_, E_scale_);
+    }
+    else
+    {
+        laser_drive.drive_left = cfg_.laser_from_left_boundary;
+        laser_drive.left_ex = laser_ex(t_next);
+    }
 
     auto is_plasma_cell = [&](int i)
     {
@@ -339,9 +364,14 @@ void FluidMaxwell1D::step_once()
     {
         FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask_);
 
-        MaxwellSolver::update_magnetic_field(nx_, dt_tilde_, dz_tilde_, Ex_, By_);
+        MaxwellSolver::update_magnetic_field(nx_, dt_tilde_, dz_tilde_, Ex_,
+                                             laser_drive.drive_left, laser_drive.left_ex,
+                                             laser_drive.drive_right, laser_drive.right_ex,
+                                             By_);
         MaxwellSolver::update_transverse_electric_field(nx_, dt_tilde_, dz_tilde_,
-                                                        laser_ex(t_next), cfg_.laser_from_left_boundary, jx_, By_, Ex_);
+                                                        laser_drive.drive_left, laser_drive.left_ex,
+                                                        laser_drive.drive_right, laser_drive.right_ex,
+                                                        jx_, By_, Ex_);
 
         FluidSolver::update_vx(nx_, dt_tilde_, dz_tilde_, Ex_, By_, vz_, vx_, &plasma_mask_, &dvx_dz_);
 
@@ -352,10 +382,15 @@ void FluidMaxwell1D::step_once()
 
     FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask_);
 
-    MaxwellSolver::update_magnetic_field(nx_, dt_tilde_, dz_tilde_, Ex_, By_);
+    MaxwellSolver::update_magnetic_field(nx_, dt_tilde_, dz_tilde_, Ex_,
+                                         laser_drive.drive_left, laser_drive.left_ex,
+                                         laser_drive.drive_right, laser_drive.right_ex,
+                                         By_);
 
     MaxwellSolver::update_transverse_electric_field(nx_, dt_tilde_, dz_tilde_,
-                                                    laser_ex(t_next), cfg_.laser_from_left_boundary, jx_, By_, Ex_);
+                                                    laser_drive.drive_left, laser_drive.left_ex,
+                                                    laser_drive.drive_right, laser_drive.right_ex,
+                                                    jx_, By_, Ex_);
     MaxwellSolver::update_longitudinal_electric_field(nx_, dt_tilde_, jz_, Ez_);
     apply_interface_jump();
 

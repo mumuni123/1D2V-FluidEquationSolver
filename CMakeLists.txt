@@ -7,6 +7,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O2 -Wall")
 add_executable(fluid_maxwell_1d
     src/main.cpp
     src/fluid_maxwell_1d.cpp
+    src/laser_driver.cpp
     src/maxwell_solver.cpp
     src/fluid_solver.cpp
     src/result_output.cpp
