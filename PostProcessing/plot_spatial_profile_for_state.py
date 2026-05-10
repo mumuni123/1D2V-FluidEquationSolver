@@ -4,8 +4,12 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import re
 from typing import List, Tuple
 
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -28,10 +32,19 @@ def _load_csv(path: str) -> np.ndarray:
 
 
 def _list_state_files(output_dir: str) -> List[str]:
-    files = sorted(glob.glob(os.path.join(output_dir, "state_*.csv")))
+    files = glob.glob(os.path.join(output_dir, "state_*.csv"))
+    files = [f for f in files if _extract_step(f) >= 0]
+    files = sorted(files, key=_extract_step)
     if not files:
         raise FileNotFoundError("No state_*.csv found in: {0}".format(output_dir))
     return files
+
+
+def _extract_step(path: str) -> int:
+    m = re.search(r"state_(\d+)\.csv$", os.path.basename(path))
+    if m is None:
+        return -1
+    return int(m.group(1))
 
 
 def _finite_ratio(arr: np.ndarray) -> float:
@@ -171,7 +184,7 @@ def run(output_dir: str, results_dir: str, state_file: str, normalize: bool, n0:
             "Selected state file is invalid (too many NaN/Inf): {0}".format(state_path)
         )
 
-    s, is_norm = norm.convert_state_columns(data, normalize, n0)
+    s, is_norm = norm.convert_state_columns(data, normalize, n0, cfg.VELOCITY_DENSITY_MIN_RATIO)
     s_phys, _ = norm.convert_state_columns(data, False, n0)
     z_axis = s_phys["z"] * 1.0e6
     x_label = "z (um)"

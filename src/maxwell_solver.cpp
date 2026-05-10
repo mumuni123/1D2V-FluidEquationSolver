@@ -21,6 +21,7 @@ void update_magnetic_field(int nx,
                            bool drive_right_boundary,
                            double right_laser_ex_t,
                            std::vector<double>& By) {
+    #pragma omp parallel for
     for (int i = 1; i < nx; ++i) {
         By[i] -= (dt / dz) * (Ex[i] - Ex[i - 1]);
     }
@@ -40,6 +41,7 @@ void update_transverse_electric_field(int nx,
                                       const std::vector<double>& By,
                                       std::vector<double>& Ex) {
 
+    #pragma omp parallel for
     for (int i = 0; i < nx; ++i) {
         const double curl_by = (By[i + 1] - By[i]) / dz;
         Ex[i] -= dt * curl_by - dt * jx[i];
@@ -62,6 +64,7 @@ void update_longitudinal_electric_field(int nx,
                                         double dt,
                                         const std::vector<double>& jz,
                                         std::vector<double>& Ez) {
+    #pragma omp parallel for
     for (int i = 0; i < nx; ++i) {
         Ez[i] += dt * jz[i];
     }

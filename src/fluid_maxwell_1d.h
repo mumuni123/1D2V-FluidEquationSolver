@@ -42,6 +42,7 @@ private:
     std::vector<double> jz_from_ez_;
     std::vector<double> n_new_;
     std::vector<double> n_proj_;
+    std::vector<double> n_face_flux_;
     std::vector<double> dvx_dz_;
     std::vector<double> dqz_dz_;
     std::vector<double> dn_dz_;

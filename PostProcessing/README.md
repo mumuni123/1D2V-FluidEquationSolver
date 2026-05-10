@@ -8,7 +8,7 @@ This folder now contains two separated plotting modules:
 - plot_time_evolution_at_positions.py
 	- Plot full-time evolution at user-specified spatial positions.
 - plot_ex_time_fft_at_position.py
-	- Plot Ex time evolution at one spatial position and its FFT spectrum.
+	- Plot Ex time evolution and FFT spectra at user-specified spatial positions.
 - plot_ex_spacetime.py
 	- Plot Ex(z,t) spacetime map.
 - plot_spatial_profile_for_state.py
@@ -29,11 +29,13 @@ You can directly edit config.py to change default values:
 
 - OUTPUT_DIR, RESULTS_DIR
 - TIME_POSITIONS_UM
+- FFT_POSITIONS_UM
 - TIME_VARIABLES
 - SPACE_STATE_FILE
 - DEFAULT_MODE
 - NORMALIZE_OUTPUT
 - INITIAL_DENSITY_M3
+- VELOCITY_DENSITY_MIN_RATIO
 
 ## Normalization mode
 
@@ -54,6 +56,9 @@ Enable normalization either by config or CLI:
 - CLI: add --normalize
 - Optional override: --n0 <value_in_m^-3>
 
+Velocity plots hide vx/vz points where ne/n0 is below VELOCITY_DENSITY_MIN_RATIO.
+Use NaN masking so those low-density velocity points are not drawn.
+
 ## Usage examples
 
 1) Directly use time-evolution module:
@@ -61,7 +66,7 @@ Enable normalization either by config or CLI:
 ```bash
 python PostProcessing/plot_time_evolution_at_positions.py --positions-um 0.5,2.0,4.0
 python PostProcessing/plot_time_evolution_at_positions.py --positions-um 0.5,2.0,4.0 --normalize --n0 3e26
-python PostProcessing/plot_ex_time_fft_at_position.py --position-um 23.0
+python PostProcessing/plot_ex_time_fft_at_position.py --positions-um 2.0,8.0,23.0
 python PostProcessing/plot_ex_spacetime.py
 python PostProcessing/plot_ex_spacetime.py --z-min-um 0 --z-max-um 30 --time-min 70 --time-max 120
 ```

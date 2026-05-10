@@ -105,7 +105,19 @@ def run(
     for j, f in enumerate(selected_files):
         s = _load_csv(f)
         sv, _ = norm.convert_state_columns(s, is_norm, n0)
-        ex_zt[j, :] = sv["Ex"][z_mask]
+        s_phys, _ = norm.convert_state_columns(s, False, n0)
+        z_frame = np.asarray(s_phys["z"], dtype=np.float64) * 1.0e6
+        ex_frame = np.asarray(sv["Ex"], dtype=np.float64)
+        mask = np.isfinite(z_frame) & np.isfinite(ex_frame)
+        if np.count_nonzero(mask) < 2:
+            continue
+
+        z_valid = z_frame[mask]
+        ex_valid = ex_frame[mask]
+        order = np.argsort(z_valid)
+        z_valid = z_valid[order]
+        ex_valid = ex_valid[order]
+        ex_zt[j, :] = np.interp(selected_z, z_valid, ex_valid, left=np.nan, right=np.nan)
 
     vmin, vmax = _finite_limits(ex_zt, vlim_percentile)
     z_edges = _edge_axis(selected_z)

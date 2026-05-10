@@ -70,7 +70,7 @@ struct Config {
           intensity_w_cm2(1.0e17),
 
           electron_temperature_ev(100.0),
-          electron_density0(3.0e26),  //pre is 3.0e26
+          electron_density0(3.14208e+24),  //pre is 3.0e26
           length(25.0e-6),
           dz(0.002e-6),
           t_end(120.0e-15),
@@ -100,13 +100,13 @@ struct Config {
           n_floor_ratio(0.0) {
         laser_beam1.enabled = true;
         laser_beam1.from_left_boundary = true;
-        laser_beam1.lambda = 1.10157e-06;
-        laser_beam1.intensity_w_cm2 = 1.12750e+18;
+        laser_beam1.lambda = 1.07637e-05;
+        laser_beam1.intensity_w_cm2 = 1.0e17;
 
         laser_beam2.enabled = true;
         laser_beam2.from_left_boundary = true;
-        laser_beam2.lambda = 2.53650e-06;
-        laser_beam2.intensity_w_cm2 = 1.32908e+16;
+        laser_beam2.lambda = 2.47849e-05;
+        laser_beam2.intensity_w_cm2 = 1.0e17;
     }
 };
 

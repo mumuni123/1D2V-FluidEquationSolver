@@ -8,6 +8,9 @@ import os
 import re
 from typing import Dict, List, Sequence, Tuple
 
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -29,8 +32,17 @@ def _load_csv(path: str) -> np.ndarray:
     return data
 
 
+def _extract_step(path: str) -> int:
+    m = re.search(r"state_(\d+)\.csv$", os.path.basename(path))
+    if m is None:
+        return -1
+    return int(m.group(1))
+
+
 def _list_state_files(output_dir: str) -> List[str]:
-    files = sorted(glob.glob(os.path.join(output_dir, "state_*.csv")))
+    files = glob.glob(os.path.join(output_dir, "state_*.csv"))
+    files = [f for f in files if _extract_step(f) >= 0]
+    files = sorted(files, key=_extract_step)
     if not files:
         raise FileNotFoundError("No state_*.csv found in: {0}".format(output_dir))
     return files
@@ -58,13 +70,6 @@ def _nearest_indices(z_um: np.ndarray, pos_um: Sequence[float]) -> Tuple[List[in
     return idx, actual
 
 
-def _extract_step(path: str) -> int:
-    m = re.search(r"state_(\d+)\.csv$", os.path.basename(path))
-    if m is None:
-        return -1
-    return int(m.group(1))
-
-
 def _build_time_axis(output_dir: str, files: Sequence[str], n0: float) -> Tuple[np.ndarray, str]:
     diag_path = os.path.join(output_dir, "diagnostics.csv")
     if os.path.isfile(diag_path):
@@ -74,6 +79,29 @@ def _build_time_axis(output_dir: str, files: Sequence[str], n0: float) -> Tuple[
                 return norm.diagnostics_time_axis(diag, False, n0)
             except KeyError:
                 pass
+        else:
+            try:
+                diag_t, diag_label = norm.diagnostics_time_axis(diag, False, n0)
+            except KeyError:
+                diag_t = np.asarray([], dtype=np.float64)
+                diag_label = ""
+
+            diag_t = np.asarray(diag_t, dtype=np.float64)
+            diag_t = diag_t[np.isfinite(diag_t)]
+            if diag_t.size >= 2:
+                diag_dt = np.diff(diag_t)
+                median_diag_dt = float(np.median(diag_dt))
+                steps = np.asarray([_extract_step(f) for f in files], dtype=np.float64)
+                unique_steps = np.unique(steps[steps >= 0])
+                if (
+                    median_diag_dt > 0.0
+                    and np.isfinite(median_diag_dt)
+                    and unique_steps.size >= 2
+                    and diag_label
+                ):
+                    step_stride = float(np.median(np.diff(unique_steps)))
+                    if step_stride > 0.0 and np.isfinite(step_stride):
+                        return (steps - steps[0]) / step_stride * median_diag_dt + diag_t[0], diag_label
 
     steps = np.asarray([_extract_step(f) for f in files], dtype=np.float64)
     if np.all(steps >= 0):
@@ -129,6 +157,24 @@ def _var_ylabel(var_name: str, normalized: bool) -> str:
     return var_name
 
 
+def _nearest_value_at_position(
+    state_phys: Dict[str, np.ndarray],
+    state_values: Dict[str, np.ndarray],
+    var_name: str,
+    position_um: float,
+) -> Tuple[float, float]:
+    z_um = np.asarray(state_phys["z"], dtype=np.float64) * 1.0e6
+    values = np.asarray(state_values[var_name], dtype=np.float64)
+    mask = np.isfinite(z_um) & np.isfinite(values)
+    if np.count_nonzero(mask) == 0:
+        return np.nan, np.nan
+
+    z_valid = z_um[mask]
+    v_valid = values[mask]
+    i = int(np.argmin(np.abs(z_valid - position_um)))
+    return float(v_valid[i]), float(z_valid[i])
+
+
 def run(
     output_dir: str,
     results_dir: str,
@@ -145,10 +191,10 @@ def run(
     files = _list_state_files(output_dir)
     first = _load_csv(files[0])
 
-    s0, is_norm = norm.convert_state_columns(first, normalize, n0)
+    _, is_norm = norm.convert_state_columns(first, normalize, n0)
     s0_phys, _ = norm.convert_state_columns(first, False, n0)
     z_um = s0_phys["z"] * 1.0e6
-    pos_idx, actual_pos = _nearest_indices(z_um, positions_um)
+    _, actual_pos = _nearest_indices(z_um, positions_um)
 
     time_x, x_label = _build_time_axis(output_dir, files, n0)
 
@@ -158,16 +204,18 @@ def run(
 
     series: Dict[str, np.ndarray] = {}
     for v in variables:
-        series[v] = np.full((len(pos_idx), len(files)), np.nan, dtype=np.float64)
+        series[v] = np.full((len(positions_um), len(files)), np.nan, dtype=np.float64)
 
     for j, f in enumerate(files):
         s = _load_csv(f)
-        sv, _ = norm.convert_state_columns(s, is_norm, n0)
-        for vi, i_cell in enumerate(pos_idx):
+        sv, _ = norm.convert_state_columns(s, is_norm, n0, cfg.VELOCITY_DENSITY_MIN_RATIO)
+        s_phys, _ = norm.convert_state_columns(s, False, n0)
+        for vi, pos_um in enumerate(positions_um):
             for v in variables:
-                arr = sv[v]
-                if 0 <= i_cell < arr.size:
-                    series[v][vi, j] = arr[i_cell]
+                value, actual = _nearest_value_at_position(s_phys, sv, v, pos_um)
+                series[v][vi, j] = value
+                if np.isfinite(actual):
+                    actual_pos[vi] = actual
 
     n_var = len(variables)
     n_cols = 2

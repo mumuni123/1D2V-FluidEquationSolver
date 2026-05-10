@@ -29,7 +29,34 @@ def _col(data: np.ndarray, name: str) -> np.ndarray:
     return np.asarray(data[name], dtype=np.float64)
 
 
-def convert_state_columns(data: np.ndarray, normalize: bool, n0: float) -> Tuple[Dict[str, np.ndarray], bool]:
+def _mask_low_density_velocity(
+    out: Dict[str, np.ndarray],
+    normalized: bool,
+    n0: float,
+    min_ratio: float | None,
+) -> Dict[str, np.ndarray]:
+    if min_ratio is None or min_ratio <= 0.0:
+        return out
+
+    ne_ratio = out["ne"] if normalized else out["ne"] / n0
+    mask = ~np.isfinite(ne_ratio) | (ne_ratio < min_ratio)
+    if not np.any(mask):
+        return out
+
+    masked = dict(out)
+    for key in ("vx", "vz"):
+        arr = np.asarray(masked[key], dtype=np.float64).copy()
+        arr[mask] = np.nan
+        masked[key] = arr
+    return masked
+
+
+def convert_state_columns(
+    data: np.ndarray,
+    normalize: bool,
+    n0: float,
+    velocity_density_min_ratio: float | None = None,
+) -> Tuple[Dict[str, np.ndarray], bool]:
     ref = build_refs(n0)
     names = set(data.dtype.names)
 
@@ -57,7 +84,7 @@ def convert_state_columns(data: np.ndarray, normalize: bool, n0: float) -> Tuple
                 "vz": _col(data, "vz_tilde"),
                 "Pe": _col(data, "Pe_tilde"),
             }
-            return out, True
+            return _mask_low_density_velocity(out, True, n0, velocity_density_min_ratio), True
 
         if not has_phys:
             raise KeyError("State file lacks required columns for normalization")
@@ -72,7 +99,7 @@ def convert_state_columns(data: np.ndarray, normalize: bool, n0: float) -> Tuple
             "vz": _col(data, "vz") / ref["v_scale"],
             "Pe": _col(data, "Pe") / ref["p_scale"],
         }
-        return out, True
+        return _mask_low_density_velocity(out, True, n0, velocity_density_min_ratio), True
 
     if has_phys:
         out = {
@@ -85,7 +112,7 @@ def convert_state_columns(data: np.ndarray, normalize: bool, n0: float) -> Tuple
             "vz": _col(data, "vz"),
             "Pe": _col(data, "Pe"),
         }
-        return out, False
+        return _mask_low_density_velocity(out, False, n0, velocity_density_min_ratio), False
 
     if has_tilde:
         out = {
@@ -98,7 +125,7 @@ def convert_state_columns(data: np.ndarray, normalize: bool, n0: float) -> Tuple
             "vz": _col(data, "vz_tilde") * ref["v_scale"],
             "Pe": _col(data, "Pe_tilde") * ref["p_scale"],
         }
-        return out, False
+        return _mask_low_density_velocity(out, False, n0, velocity_density_min_ratio), False
 
     raise KeyError("State file lacks required columns")
 

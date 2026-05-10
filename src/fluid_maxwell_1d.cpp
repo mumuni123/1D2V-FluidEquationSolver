@@ -32,6 +32,7 @@ FluidMaxwell1D::FluidMaxwell1D(const Config &cfg)
       jz_from_ez_(nx_, 0.0),
       n_new_(nx_, 0.0),
       n_proj_(nx_, 0.0),
+      n_face_flux_(nx_ + 1, 0.0),
       dvx_dz_(nx_, 0.0),
       dqz_dz_(nx_, 0.0),
       dn_dz_(nx_, 0.0),
@@ -57,6 +58,7 @@ FluidMaxwell1D::FluidMaxwell1D(const Config &cfg)
       rng_(std::random_device{}()),
       time_tilde_(0.0)
 {
+    #pragma omp parallel for
     for (int i = 0; i < nx_; ++i)
     {
         z_[i] = i * cfg_.dz;
@@ -205,6 +207,7 @@ void FluidMaxwell1D::run()
         std::vector<double> Pe_phys(nx_, 0.0);
         std::vector<double> By_phys(nx_ + 1, 0.0);
 
+        #pragma omp parallel for
         for (int i = 0; i < nx_; ++i)
         {
             Ex_phys[i] = Ex_[i] * E_scale_;
@@ -216,6 +219,7 @@ void FluidMaxwell1D::run()
             vz_phys[i] = vz_tilde * PhysConst::C;
             Pe_phys[i] = (beta_ * PhysConst::ME * PhysConst::C * PhysConst::C / cfg_.gamma_e) * ne_phys[i];
         }
+        #pragma omp parallel for
         for (int i = 0; i < nx_ + 1; ++i)
         {
             By_phys[i] = By_[i] * B_scale_;
@@ -380,7 +384,8 @@ void FluidMaxwell1D::step_once()
         return;
     }
 
-    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask_);
+    FluidSolver::update_kinematics_from_n_qz(nx_, n_, qz_, gamma_, inv_n_, vz_, &plasma_mask_);
+    FluidSolver::update_current_from_n_v(nx_, n_, vx_, vz_, jx_, jz_, &plasma_mask_);
 
     MaxwellSolver::update_magnetic_field(nx_, dt_tilde_, dz_tilde_, Ex_,
                                          laser_drive.drive_left, laser_drive.left_ex,
@@ -394,22 +399,22 @@ void FluidMaxwell1D::step_once()
     MaxwellSolver::update_longitudinal_electric_field(nx_, dt_tilde_, jz_, Ez_);
     apply_interface_jump();
 
+    #pragma omp parallel for
     for (int i = 0; i < nx_; ++i)
     {
         jz_from_ez_[i] = is_plasma_cell(i) ? ((Ez_[i] - Ez_old_[i]) / dt_tilde_) : 0.0;
     }
 
     FluidSolver::update_n(nx_, dt_tilde_, dz_tilde_, n_bath_tilde_, vth_tilde_, n_, vz_, jz_, n_new_,
-                          &plasma_mask_, true);
+                          &plasma_mask_, true, &n_face_flux_);
     FluidSolver::enforce_continuity_constraint_from_jz(nx_, dt_tilde_, dz_tilde_,
                                                        n_bath_tilde_, vth_tilde_, n_old_, vz_, jz_from_ez_, n_new_,
                                                        &plasma_mask_, true, &n_proj_);
     n_.swap(n_new_);
 
-    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask_);
+    FluidSolver::update_kinematics_from_n_qz(nx_, n_, qz_, gamma_, inv_n_, vz_, &plasma_mask_);
     FluidSolver::update_vx(nx_, dt_tilde_, dz_tilde_, Ex_, By_, vz_, vx_, &plasma_mask_, &dvx_dz_);
 
-    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask_);
     FluidSolver::update_qz(nx_, dt_tilde_, dz_tilde_, beta_, Ez_, By_, n_, inv_n_, vx_, vz_, qz_,
                            &plasma_mask_, &dqz_dz_, &dn_dz_);
 
@@ -417,7 +422,8 @@ void FluidMaxwell1D::step_once()
 
     apply_interface_jump();
 
-    FluidSolver::update_derived_from_n_vx_qz(nx_, n_, vx_, qz_, gamma_, inv_n_, vz_, jx_, jz_, &plasma_mask_);
+    FluidSolver::update_kinematics_from_n_qz(nx_, n_, qz_, gamma_, inv_n_, vz_, &plasma_mask_);
+    FluidSolver::update_current_from_n_v(nx_, n_, vx_, vz_, jx_, jz_, &plasma_mask_);
 
     time_tilde_ = t_next;
 }

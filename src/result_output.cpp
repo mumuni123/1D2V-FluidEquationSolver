@@ -81,6 +81,7 @@ void append_diagnostics(std::ofstream& diag,
     double em_sum = 0.0;
     double fluid_sum = 0.0;
 
+    #pragma omp parallel for reduction(min:n_min) reduction(max:n_max) reduction(+:vx2_sum,vz2_sum,em_sum,fluid_sum)
     for (int i = 0; i < nx; ++i) {
         if (ne[i] < n_min) n_min = ne[i];
         if (ne[i] > n_max) n_max = ne[i];

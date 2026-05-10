@@ -16,6 +16,22 @@ void update_derived_from_n_vx_qz(int nx,
                                       std::vector<double>& jz,
                                       const std::vector<char>* plasma_mask = nullptr);
 
+void update_kinematics_from_n_qz(int nx,
+                                 const std::vector<double>& n,
+                                 const std::vector<double>& qz,
+                                 std::vector<double>& gamma,
+                                 std::vector<double>& inv_n,
+                                 std::vector<double>& vz,
+                                 const std::vector<char>* plasma_mask = nullptr);
+
+void update_current_from_n_v(int nx,
+                             const std::vector<double>& n,
+                             const std::vector<double>& vx,
+                             const std::vector<double>& vz,
+                             std::vector<double>& jx,
+                             std::vector<double>& jz,
+                             const std::vector<char>* plasma_mask = nullptr);
+
 void update_n(int nx,
               double dt,
               double dz,
@@ -26,7 +42,8 @@ void update_n(int nx,
               const std::vector<double>& jz,
               std::vector<double>& n_new,
               const std::vector<char>* plasma_mask = nullptr,
-              bool closed_boundary = false);
+              bool closed_boundary = false,
+              std::vector<double>* face_flux_workspace = nullptr);
 
 void update_vx(int nx,
                double dt,

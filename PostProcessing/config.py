@@ -21,8 +21,15 @@ NORMALIZE_OUTPUT = True
 INITIAL_DENSITY_M3 = 3.0e26
 
 # Time-evolution defaults
-TIME_POSITIONS_UM: List[float] = [23.0]
+TIME_POSITIONS_UM: List[float] = [8.0]
 TIME_VARIABLES: List[str] = ["Ex", "Ez", "By", "ne", "vx", "vz", "Pe"]
+
+# Hide velocity values where ne/n0 is below this threshold.
+# Set to 1.0e-8 if you want a looser low-density cutoff.
+VELOCITY_DENSITY_MIN_RATIO = 1.0
+
+# FFT defaults, independent of TIME_POSITIONS_UM.
+FFT_POSITIONS_UM: List[float] = [2.0,23.0]
 
 # Spatial-profile defaults
 SPACE_STATE_FILE = "state_2293470.csv"

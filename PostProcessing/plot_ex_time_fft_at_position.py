@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
-from typing import Tuple
+from typing import List, Sequence, Tuple
 
 import matplotlib
 
@@ -18,7 +18,9 @@ from plot_time_evolution_at_positions import (
     _build_time_axis,
     _list_state_files,
     _load_csv,
+    _nearest_value_at_position,
     _nearest_indices,
+    _parse_positions_um,
     _resolve_default_paths,
     _robust_ylim,
     _safe_line,
@@ -41,6 +43,28 @@ def _frequency_axis(time_x: np.ndarray, x_label: str) -> Tuple[np.ndarray, str]:
 
     freq = np.fft.rfftfreq(time_x.size, d=dt)
     return freq, "frequency (1/{0})".format(x_label)
+
+
+def _default_fft_xlim(freq: np.ndarray, freq_label: str, n0: float) -> Tuple[float, float]:
+    if freq.size == 0:
+        return 0.0, 1.0
+
+    f_max = float(np.nanmax(freq))
+    if not np.isfinite(f_max) or f_max <= 0.0:
+        return 0.0, 1.0
+
+    refs = norm.build_refs(n0)
+    f_pe_hz = refs["omega_pe"] / (2.0 * np.pi)
+    if freq_label == "frequency (THz)":
+        limit = 10.0 * f_pe_hz / 1.0e12
+    elif freq_label == "frequency (1/normalized time)":
+        limit = 10.0 / (2.0 * np.pi)
+    else:
+        limit = f_max
+
+    if not np.isfinite(limit) or limit <= 0.0:
+        limit = f_max
+    return 0.0, min(float(limit), f_max)
 
 
 def _extract_step(path: str) -> int:
@@ -134,10 +158,14 @@ def _fft_amplitude(time_x: np.ndarray, ex: np.ndarray, x_label: str) -> Tuple[np
 def run(
     output_dir: str,
     results_dir: str,
-    position_um: float,
+    positions_um: Sequence[float],
     normalize: bool,
     n0: float,
+    fft_max: float | None = None,
 ) -> str:
+    if len(positions_um) == 0:
+        raise ValueError("No FFT positions provided")
+
     if not os.path.isdir(output_dir):
         raise FileNotFoundError("Output directory not found: {0}".format(output_dir))
     if not os.path.isdir(results_dir):
@@ -149,51 +177,65 @@ def run(
     _, is_norm = norm.convert_state_columns(first, normalize, n0)
     s0_phys, _ = norm.convert_state_columns(first, False, n0)
     z_um = s0_phys["z"] * 1.0e6
-    pos_idx, actual_pos = _nearest_indices(z_um, [position_um])
-    i_cell = pos_idx[0]
-    actual_um = actual_pos[0]
+    _, actual_pos = _nearest_indices(z_um, positions_um)
 
     time_x, x_label = _build_time_axis_with_inference(output_dir, files, n0)
-    ex = np.full(len(files), np.nan, dtype=np.float64)
+    ex = np.full((len(positions_um), len(files)), np.nan, dtype=np.float64)
 
     for j, f in enumerate(files):
         s = _load_csv(f)
         sv, _ = norm.convert_state_columns(s, is_norm, n0)
-        arr = sv["Ex"]
-        if 0 <= i_cell < arr.size:
-            ex[j] = arr[i_cell]
-
-    freq, amp, freq_label = _fft_amplitude(time_x, ex, x_label)
+        s_phys, _ = norm.convert_state_columns(s, False, n0)
+        for vi, pos_um in enumerate(positions_um):
+            value, actual = _nearest_value_at_position(s_phys, sv, "Ex", pos_um)
+            ex[vi, j] = value
+            if np.isfinite(actual):
+                actual_pos[vi] = actual
 
     fig, axes = plt.subplots(2, 1, figsize=(11.0, 8.0))
 
-    _safe_line(axes[0], time_x, ex, "z={0:.3f} um".format(actual_um))
-    axes[0].set_title("Ex time evolution at z={0:.3f} um".format(actual_um))
+    y_collect: List[np.ndarray] = []
+    for vi, pos in enumerate(actual_pos):
+        y = ex[vi, :]
+        y_collect.append(y)
+        _safe_line(axes[0], time_x, y, "z={0:.3f} um".format(pos))
+
+    axes[0].set_title("Ex time evolution at selected positions")
     axes[0].set_xlabel(x_label)
     axes[0].set_ylabel(_var_ylabel("Ex", is_norm))
     axes[0].grid(True)
     axes[0].legend(loc="best", fontsize=8)
-    _robust_ylim(axes[0], ex)
+    _robust_ylim(axes[0], np.concatenate(y_collect))
 
     finite_t = time_x[np.isfinite(time_x)]
     if finite_t.size > 1:
         axes[0].set_xlim(float(np.min(finite_t)), float(np.max(finite_t)))
 
-    _safe_line(axes[1], freq, amp, "FFT amplitude")
-    axes[1].set_title("FFT spectrum of Ex")
+    freq = np.asarray([], dtype=np.float64)
+    freq_label = "frequency"
+    for vi, pos in enumerate(actual_pos):
+        freq, amp, freq_label = _fft_amplitude(time_x, ex[vi, :], x_label)
+        _safe_line(axes[1], freq, amp, "z={0:.3f} um".format(pos))
+
+    axes[1].set_title("FFT spectrum of Ex at selected positions")
     axes[1].set_xlabel(freq_label)
     axes[1].set_ylabel("amplitude")
     axes[1].grid(True)
+    axes[1].legend(loc="best", fontsize=8)
     if freq.size > 1:
-        axes[1].set_xlim(float(freq[0]), float(freq[-1]))
+        if fft_max is None:
+            axes[1].set_xlim(*_default_fft_xlim(freq, freq_label, n0))
+        else:
+            axes[1].set_xlim(float(freq[0]), min(float(fft_max), float(freq[-1])))
 
     fig.tight_layout()
-    out_path = os.path.join(results_dir, "ex_time_fft_at_{0:g}um.png".format(position_um))
+    out_path = os.path.join(results_dir, "ex_time_fft_at_positions.png")
     fig.savefig(out_path, dpi=180)
     plt.close(fig)
 
-    print("Selected position (requested -> actual):")
-    print("- {0:.4f} um -> {1:.4f} um".format(position_um, actual_um))
+    print("Selected FFT positions (requested -> actual):")
+    for req, act in zip(positions_um, actual_pos):
+        print("- {0:.4f} um -> {1:.4f} um".format(req, act))
 
     return out_path
 
@@ -203,15 +245,20 @@ def parse_args() -> argparse.Namespace:
     default_output, default_results = _resolve_default_paths(script_dir)
 
     parser = argparse.ArgumentParser(
-        description="Plot Ex time evolution at one position and its FFT spectrum."
+        description="Plot Ex time evolution and FFT spectra at selected positions."
     )
     parser.add_argument("--output", default=cfg.OUTPUT_DIR or default_output, help="Path to output directory")
     parser.add_argument("--results", default=cfg.RESULTS_DIR or default_results, help="Path to results directory")
     parser.add_argument(
+        "--positions-um",
+        default=cfg.positions_to_text(cfg.FFT_POSITIONS_UM),
+        help="Comma-separated FFT positions in um, e.g. 0.5,2.0,4.0",
+    )
+    parser.add_argument(
         "--position-um",
         type=float,
-        default=cfg.TIME_POSITIONS_UM[0],
-        help="Position in um, e.g. 23.0",
+        default=None,
+        help="Single FFT position in um. Overrides --positions-um when provided.",
     )
     parser.add_argument(
         "--normalize",
@@ -224,13 +271,20 @@ def parse_args() -> argparse.Namespace:
         default=cfg.INITIAL_DENSITY_M3,
         help="Initial density n0 (m^-3) used for normalization references",
     )
+    parser.add_argument(
+        "--fft-max",
+        type=float,
+        default=None,
+        help="Maximum FFT x-axis value in the displayed frequency unit; default is 3*f_pe",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     normalize = cfg.NORMALIZE_OUTPUT or args.normalize
-    out_path = run(args.output, args.results, args.position_um, normalize, args.n0)
+    positions_um = [args.position_um] if args.position_um is not None else _parse_positions_um(args.positions_um)
+    out_path = run(args.output, args.results, positions_um, normalize, args.n0, args.fft_max)
     print("Saved: {0}".format(out_path))
 
 
